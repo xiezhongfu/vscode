@@ -26,10 +26,11 @@ function writeFile(filePath: string, contents: Buffer | string): void {
 	fs.writeFileSync(filePath, contents);
 }
 
-export function extractEditor(options: tss.ITreeShakingOptions & { destRoot: string; tsOutDir: string; additionalFilesToCopyOut?: string[] }): void {
+export function extractEditor(options: tss.ITreeShakingOptions & { destRoot: string; tsOutDir: string; additionalFilesToCopyOut?: string[]; tsconfigFile?: string }): void {
 	const ts = require('typescript') as typeof import('typescript');
 
-	const tsConfig = JSON.parse(fs.readFileSync(path.join(options.sourcesRoot, 'tsconfig.monaco.json')).toString());
+	const tsconfigFile = options.tsconfigFile ?? 'tsconfig.monaco.json';
+	const tsConfig = JSON.parse(fs.readFileSync(path.join(options.sourcesRoot, tsconfigFile)).toString());
 	let compilerOptions: { [key: string]: any };
 	if (tsConfig.extends) {
 		compilerOptions = Object.assign({}, require(path.join(options.sourcesRoot, tsConfig.extends)).compilerOptions, tsConfig.compilerOptions);

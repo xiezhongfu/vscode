@@ -219,6 +219,146 @@ gulp.task('editor-distro',
 	)
 );
 
+// Full browser build: includes all non-Node browser APIs
+// (vs/base/browser/ui/**, vs/platform/*/browser/**, htmlFileSystemProvider, webFileSystemAccess, etc.)
+const extractEditorFullSrcTask = task.define('extract-editor-full-src', () => {
+	const apiusages = monacoapi.execute().usageContent;
+	const extrausages = fs.readFileSync(path.join(root, 'build', 'monaco', 'monaco.usage.recipe')).toString();
+	const fullextrausages = fs.readFileSync(path.join(root, 'build', 'monaco', 'monaco-full.usage.recipe')).toString();
+	standalone.extractEditor({
+		sourcesRoot: path.join(root, 'src'),
+		entryPoints: [
+			'vs/editor/editor.main.ts',
+			'vs/editor/editor.worker.start.ts',
+			'vs/editor/common/services/editorWebWorkerMain.ts',
+		],
+		inlineEntryPoints: [
+			apiusages,
+			extrausages,
+			fullextrausages,
+		],
+		typings: [],
+		additionalFilesToCopyOut: [
+			'vs/base/browser/dompurify/dompurify.js',
+			'vs/base/common/marked/marked.js',
+		],
+		shakeLevel: 0, // 0-Files: keep entire files that are reachable
+		importIgnorePattern: /\.css$/,
+		destRoot: path.join(root, 'out-editor-full-src'),
+		tsOutDir: '../out-monaco-editor-core-full/esm/vs',
+		tsconfigFile: 'tsconfig.monaco-full.json',
+	});
+});
+
+const compileEditorFullESMTask = task.define('compile-editor-full-esm', () => {
+
+	const src = 'out-editor-full-src';
+	const out = 'out-monaco-editor-core-full/esm';
+
+	const compile = compilation.createCompile(src, { build: true, emitError: true, transpileOnly: false, preserveEnglish: true });
+	const srcPipe = gulp.src(`${src}/**`, { base: `${src}` });
+
+	return (
+		srcPipe
+			.pipe(compile())
+			.pipe(i18n.processNlsFiles({
+				out,
+				fileHeader: BUNDLED_FILE_HEADER,
+				languages: [...i18n.defaultLanguages, ...i18n.extraLanguages],
+			}))
+			.pipe(filter(['**', '!**/inlineEntryPoint*', '!**/tsconfig.json', '!**/loader.js']))
+			.pipe(gulp.dest(out))
+	);
+});
+
+const finalEditorFullResourcesTask = task.define('final-editor-full-resources', () => {
+	return es.merge(
+		// other assets
+		es.merge(
+			gulp.src('build/monaco/LICENSE'),
+			gulp.src('build/monaco/ThirdPartyNotices.txt'),
+			gulp.src('src/vs/monaco.d.ts')
+		).pipe(gulp.dest('out-monaco-editor-core-full')),
+
+		// place the .d.ts in the esm folder
+		gulp.src('src/vs/monaco.d.ts')
+			.pipe(es.through(function (data) {
+				this.emit('data', new File({
+					path: data.path.replace(/monaco\.d\.ts/, 'editor.api.d.ts'),
+					base: data.base,
+					contents: Buffer.from(toExternalDTS(data.contents.toString()))
+				}));
+			}))
+			.pipe(gulp.dest('out-monaco-editor-core-full/esm/vs/editor')),
+
+		// package.json
+		gulp.src('build/monaco/package.json')
+			.pipe(es.through(function (data) {
+				const json = JSON.parse(data.contents.toString());
+				json.private = false;
+
+				let markedVersion;
+				let dompurifyVersion;
+				try {
+					const markedManifestPath = path.join(root, 'src/vs/base/common/marked/cgmanifest.json');
+					const dompurifyManifestPath = path.join(root, 'src/vs/base/browser/dompurify/cgmanifest.json');
+
+					const markedManifest = JSON.parse(fs.readFileSync(markedManifestPath, 'utf8'));
+					const dompurifyManifest = JSON.parse(fs.readFileSync(dompurifyManifestPath, 'utf8'));
+
+					markedVersion = markedManifest.registrations[0].version;
+					dompurifyVersion = dompurifyManifest.registrations[0].version;
+
+					if (!markedVersion || !dompurifyVersion) {
+						throw new Error('Unable to read versions from cgmanifest.json files');
+					}
+				} catch (error) {
+					throw new Error(`Failed to read cgmanifest.json files for monaco-editor-core dependencies: ${error.message}`);
+				}
+
+				setUnsetField(json, 'dependencies', {
+					'marked': markedVersion,
+					'dompurify': dompurifyVersion
+				});
+
+				data.contents = Buffer.from(JSON.stringify(json, null, '  '));
+				this.emit('data', data);
+			}))
+			.pipe(gulp.dest('out-monaco-editor-core-full')),
+
+		// version.txt
+		gulp.src('build/monaco/version.txt')
+			.pipe(es.through(function (data) {
+				data.contents = Buffer.from(`monaco-editor-core: https://github.com/microsoft/vscode/tree/${sha1}`);
+				this.emit('data', data);
+			}))
+			.pipe(gulp.dest('out-monaco-editor-core-full')),
+
+		// README.md
+		gulp.src('build/monaco/README-npm.md')
+			.pipe(es.through(function (data) {
+				this.emit('data', new File({
+					path: data.path.replace(/README-npm\.md/, 'README.md'),
+					base: data.base,
+					contents: data.contents
+				}));
+			}))
+			.pipe(gulp.dest('out-monaco-editor-core-full')),
+	);
+});
+
+gulp.task('editor-distro-full',
+	task.series(
+		task.parallel(
+			util.rimraf('out-editor-full-src'),
+			util.rimraf('out-monaco-editor-core-full'),
+		),
+		extractEditorFullSrcTask,
+		compileEditorFullESMTask,
+		finalEditorFullResourcesTask
+	)
+);
+
 gulp.task('monacodts', task.define('monacodts', () => {
 	const result = monacoapi.execute();
 	fs.writeFileSync(result.filePath, result.content);
