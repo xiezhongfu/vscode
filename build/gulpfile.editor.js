@@ -292,7 +292,7 @@ const finalEditorFullResourcesTask = task.define('final-editor-full-resources', 
 			.pipe(gulp.dest('out-monaco-editor-core-full/esm/vs/editor')),
 
 		// package.json
-		gulp.src('build/monaco/package.json')
+		gulp.src('build/monaco/package-full.json')
 			.pipe(es.through(function (data) {
 				const json = JSON.parse(data.contents.toString());
 				json.private = false;
@@ -321,6 +321,7 @@ const finalEditorFullResourcesTask = task.define('final-editor-full-resources', 
 					'dompurify': dompurifyVersion
 				});
 
+				data.path = data.path.replace(/package-full\.json$/, 'package.json');
 				data.contents = Buffer.from(JSON.stringify(json, null, '  '));
 				this.emit('data', data);
 			}))
@@ -329,16 +330,16 @@ const finalEditorFullResourcesTask = task.define('final-editor-full-resources', 
 		// version.txt
 		gulp.src('build/monaco/version.txt')
 			.pipe(es.through(function (data) {
-				data.contents = Buffer.from(`monaco-editor-core: https://github.com/microsoft/vscode/tree/${sha1}`);
+				data.contents = Buffer.from(`monaco-editor-core-full: https://github.com/xiezhongfu/vscode/tree/${sha1}`);
 				this.emit('data', data);
 			}))
 			.pipe(gulp.dest('out-monaco-editor-core-full')),
 
 		// README.md
-		gulp.src('build/monaco/README-npm.md')
+		gulp.src('build/monaco/README-full-npm.md')
 			.pipe(es.through(function (data) {
 				this.emit('data', new File({
-					path: data.path.replace(/README-npm\.md/, 'README.md'),
+					path: data.path.replace(/README-full-npm\.md/, 'README.md'),
 					base: data.base,
 					contents: data.contents
 				}));
